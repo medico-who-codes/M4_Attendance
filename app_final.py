@@ -397,7 +397,7 @@ with st.expander("Data Upload & Setup", expanded=True):
     st.markdown("### Step 1: Select your details")
     col_batch, col_group = st.columns(2)
     with col_batch: batch_year = st.selectbox("Select Batch Year", [2021, 2022, 2023, 2024, 2025], index=0)
-    with col_group: batch_group = st.radio("Select Batch Group", ['A', 'B', 'C', 'D'], horizontal=True)
+    with col_group: batch_group = st.radio("Select Batch Group (JIPMER Karaikal - Batch D)", ['A', 'B', 'C', 'D'], horizontal=True)
 
     if batch_year > 2022:
         st.info("Coming Soon! Keep attending classes...")
@@ -425,7 +425,7 @@ with st.expander("Data Upload & Setup", expanded=True):
         if batch_group in ['A', 'B', 'C']: session_ids = [5271, 5272, 5273]
         else: session_ids = [5276, 5277, 5278]
             
-        with st.spinner(f"Extracting attendance records for {len(session_ids)} semesters. This may take a moment..."):
+        with st.spinner(f"Extracting attendance records for {len(session_ids)} years. This may take a moment..."):
             df_date, df_subj_combined, status = fetch_attendance_data(jsession_id, student_id, session_ids)
             
             if status != "Success":
