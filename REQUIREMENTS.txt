@@ -1,0 +1,7 @@
+requests
+re
+pandas
+datetime
+plotly
+fpdf
+  
