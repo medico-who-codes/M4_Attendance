@@ -385,9 +385,14 @@ if 'data_fetched' not in st.session_state: st.session_state.data_fetched = False
 if 'df_date' not in st.session_state: st.session_state.df_date = None
 if 'df_subj_combined' not in st.session_state: st.session_state.df_subj_combined = None
 
-def update_sim_memory(key_name): st.session_state.sim_memory[key_name] = st.session_state[f"widget_{key_name}"]
+# --- Updated Session State Management ---
+if 'data_fetched' not in st.session_state: st.session_state.data_fetched = False
+
 def bulk_toggle_memory(keys, target_state):
-    for key in keys: st.session_state.sim_memory[key] = target_state
+    """Directly updates the widget keys in session state."""
+    for key in keys:
+        # We must prefix with 'widget_' to match the checkbox keys
+        st.session_state[f"widget_{key}"] = target_state
 
 # --- App Layout & Setup ---
 st.title("Attendance Tracker & Simulator")
@@ -480,17 +485,15 @@ with tab1:
         5: "2:00 PM - 3:00 PM", 6: "3:00 PM - 4:30 PM",
         7: "4:30 PM - 05:30 PM", 8: "05:30 PM - 09:00 PM", 9: "09:00 PM - 11:30 PM"
     }
-    
     st.markdown("### Master Simulator Controls")
     c1, c2, c3, c4 = st.columns([1, 1, 1, 2])
     with c1:
         if st.button("🟢 Attend All Future", use_container_width=True):
             bulk_toggle_memory(all_future_keys, True)
-            st.rerun()
+            # No rerun needed; state change triggers it
     with c2:
         if st.button("🔴 Leave All Future", use_container_width=True):
             bulk_toggle_memory(all_future_keys, False)
-            st.rerun()
     with c3:
         pdf_data = generate_pdf_report(df_subj_combined, latest_date, end_date, batch_year, batch_group, target_subjects, active_periods, st.session_state.sim_memory)
         st.download_button(label="📄 Export Plan to PDF", data=pdf_data, file_name="Simulation_Plan.pdf", mime="application/pdf", use_container_width=True)
@@ -522,11 +525,10 @@ with tab1:
         with wc1:
             if st.button("✅ Check Week", key=f"cw_{selected_week_start}"):
                 bulk_toggle_memory(week_keys, True)
-                st.rerun()
+                
         with wc2:
             if st.button("❌ Uncheck Week", key=f"uw_{selected_week_start}"):
                 bulk_toggle_memory(week_keys, False)
-                st.rerun()
         
         days_cols = st.columns(6)
         
@@ -563,13 +565,20 @@ with tab1:
                         
                         st.markdown(f"<div class='{box_class}'><span class='period-time'>{period_times[p]}</span><b>{subject}</b><br><span style='font-size:0.8em; color:#ccc;'>{p_type}</span>{status_text}</div>", unsafe_allow_html=True)
                     
+                    # --- Inside the rendering loop for future classes ---
                     else:
-                        state_key = f"{current_day}_{p}"
-                        current_val = st.session_state.sim_memory.get(state_key, True)
-                        
+                        state_key = f"widget_{current_day}_{p}" # Consistent naming
+    
+                        # Initialize state if not present to avoid KeyErrors
+                        if state_key not in st.session_state:
+                            st.session_state[state_key] = True 
+    
                         st.markdown(f"<div class='{box_class}' style='padding-bottom: 5px;'><span class='period-time'>{period_times[p]}</span><b>{subject}</b><br><span style='font-size:0.8em; color:#ccc;'>{p_type}</span>", unsafe_allow_html=True)
-                        st.checkbox("Attend", value=current_val, key=f"widget_{state_key}", on_change=update_sim_memory, args=(state_key,), label_visibility="collapsed")
+    
+                        # The 'key' here is doing all the heavy lifting
+                        st.checkbox("Attend", key=state_key, label_visibility="collapsed")
                         st.markdown("</div>", unsafe_allow_html=True)
+                    
 
     with sim_col:
         st.markdown("### Cumulative Simulator")
