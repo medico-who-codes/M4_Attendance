@@ -197,7 +197,7 @@ def is_holiday(date, batch_year):
     if batch_year == 2022:
         if datetime.date(2026, 4, 18) <= date <= datetime.date(2026, 4, 26): return True, "Internals"
     elif batch_year == 2021:
-        if datetime.date(2026, 4, 20) <= date <= datetime.date(2026, 4, 26): return True, "Internals"
+        if datetime.date(2026, 4, 20) <= date <= datetime.date(2026, 4, 24): return True, "Internals"
     return False, ""
 
 def get_period_details(date, period_num, batch_year, batch_group):
@@ -250,8 +250,7 @@ def get_period_details(date, period_num, batch_year, batch_group):
             p2_subject = p2_map.get(batch_group)
             
         if period_num == 2 and p2_subject: subject, p_type = p2_subject, 'Practical'
-        if period_num == 3 and p2_subject == 'OG': subject, p_type = 'OG', 'Practical'
-        if period_num == 7 and p2_subject == 'OG': subject, p_type = 'OG', 'Theory'
+        if period_num in [3,7] and p2_subject == 'OG': subject, p_type = 'OG', 'Practical'
 
         is_interactive = subject is not None 
         
