@@ -245,7 +245,7 @@ def get_period_details(date, period_num, batch_year, batch_group):
         if datetime.date(2026, 3, 16) <= date <= datetime.date(2026, 4, 12):
             p2_map = {'A': 'OG', 'B': 'Pediatrics', 'C': 'Medicine', 'D': 'Surgery'}
             p2_subject = p2_map.get(batch_group)
-        elif datetime.date(2026, 4, 13) <= date <= datetime.date(2026, 4, 19) or datetime.date(2026, 4, 27) <= date <= datetime.date(2026, 5, 15):
+        elif datetime.date(2026, 4, 13) <= date <= datetime.date(2026, 4, 19) or datetime.date(2026, 4, 25) <= date <= datetime.date(2026, 5, 15):
             p2_map = {'A': 'Pediatrics', 'B': 'Medicine', 'C': 'Surgery', 'D': 'OG'}
             p2_subject = p2_map.get(batch_group)
             
