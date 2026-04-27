@@ -567,7 +567,7 @@ with tab1:
                         if current_day <= latest_date and should_check_past:
                             p_col = get_col_name(df_date, f'Period {p}')
                             past_row = df_date[df_date[date_col] == current_day]
-                            if not past_row.empty and p_col and pd.notna(past_row.iloc[0][p_col]):
+                            if not past_row.empty and p_col and pd.notna(past_row.iloc[0][p_col]) and str(past_row.iloc[0][p_col]).strip() != "":
                                 status_text = "<br><span style='color:#4CAF50;'>Present</span>" if int(past_row.iloc[0][p_col]) == 1 else "<br><span style='color:#FF4B4B;'>Absent</span>"
                         
                         st.markdown(f"<div class='{box_class}'><span class='period-time'>{period_times[p]}</span><b>{subject}</b><br><span style='font-size:0.8em; color:#ccc;'>{p_type}</span>{status_text}</div>", unsafe_allow_html=True)
