@@ -504,7 +504,7 @@ with tab1:
         while current_dt <= end_date:
             start_of_week = current_dt - datetime.timedelta(days=current_dt.weekday())
             if start_of_week not in weeks: weeks.append(start_of_week)
-            current_dt += datetime.timedelta(days=7)
+            current_dt += datetime.timedelta(days=1)
             
         week_labels = [f"Week of {w.strftime('%d %b, %Y')}" for w in weeks]
         selected_week_label = st.selectbox("Select Week to View", week_labels)
