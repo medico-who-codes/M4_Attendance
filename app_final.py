@@ -192,12 +192,13 @@ def is_holiday(date, batch_year):
     common_holidays = [datetime.date(2026, 3, 31), datetime.date(2026, 4, 3), 
                        datetime.date(2026, 4, 9), datetime.date(2026, 4, 14), datetime.date(2026, 4, 23), datetime.date(2026, 5, 1)]
     if date in common_holidays: return True, "Holiday"
-    if date == datetime.date(2026, 5, 16): return True, "Send-ups"
+    
     
     if batch_year == 2022:
         if datetime.date(2026, 4, 18) <= date <= datetime.date(2026, 4, 27): return True, "Internals"
     elif batch_year == 2021:
         if datetime.date(2026, 4, 20) <= date <= datetime.date(2026, 4, 25): return True, "Internals"
+        if date == datetime.date(2026, 5, 16): return True, "Send-ups"
     return False, ""
 
 def get_bucket(batch_year, subject):
