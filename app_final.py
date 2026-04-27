@@ -461,7 +461,7 @@ st.markdown(f"<h4 style='text-align: right; color: #4CAF50;'>Attendance dynamica
 if batch_year == 2021:
     target_subjects = ['General Medicine', 'General Surgery', 'Pediatrics', 'Obstetrics and Gynecology']
     end_date = datetime.date(2026, 5, 15)
-    active_periods = [1, 2, 3, 5, 6, 7]
+    active_periods = [1, 2, 5, 6]
 else:
     target_subjects = ['Community Medicine', 'Ophthalmology', 'Otorhinolaryngology']
     end_date = datetime.date(2026, 5, 23)
