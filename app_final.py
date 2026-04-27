@@ -552,7 +552,7 @@ with tab1:
                     subject, p_type, is_interactive = get_period_details(current_day, p, batch_year, batch_group)
                     
                     if not subject:
-                        st.markdown(f"<div class='period-box'><span class='period-time'>{period_times[p]}</span><i>Free</i></div>", unsafe_allow_html=True)
+                        
                         continue
                         
                     box_class = "period-box"
