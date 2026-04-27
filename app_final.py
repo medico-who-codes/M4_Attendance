@@ -400,7 +400,7 @@ with st.expander("Data Upload & Setup", expanded=True):
     st.markdown("### Step 1: Select your details")
     col_batch, col_group = st.columns(2)
     with col_batch: batch_year = st.selectbox("Select Batch Year", [2021, 2022, 2023, 2024, 2025], index=1) # Defaulted to 2022
-    with col_group: batch_group = st.radio("Select Batch Group (JIPMER Karaikal - Batch D)", ['A', 'B', 'C', 'D'], horizontal=True)
+    with col_group: batch_group = st.radio("Select Batch Group (Batch 2021 JIPMER Karaikal - Batch D)", ['A', 'B', 'C', 'D'], horizontal=True)
 
     if batch_year > 2022:
         st.info("Coming Soon! Keep attending classes...")
