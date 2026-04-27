@@ -195,10 +195,29 @@ def is_holiday(date, batch_year):
     if date == datetime.date(2026, 5, 16): return True, "Send-ups"
     
     if batch_year == 2022:
-        if datetime.date(2026, 4, 18) <= date <= datetime.date(2026, 4, 26): return True, "Internals"
+        if datetime.date(2026, 4, 18) <= date <= datetime.date(2026, 4, 27): return True, "Internals"
     elif batch_year == 2021:
         if datetime.date(2026, 4, 20) <= date <= datetime.date(2026, 4, 25): return True, "Internals"
     return False, ""
+
+def get_bucket(batch_year, subject):
+    if not subject: return subject
+    s_lower = str(subject).strip().lower()
+    
+    if batch_year == 2021:
+        if s_lower in ['general surgery', 'anaesthesiology', 'orthopedics', 'dentistry', 'operative surgery', 'surgery symposium', 'surgery']: return 'General Surgery'
+        if s_lower in ['general medicine', 'infectious diseases', 'dermatology (skin)', 'radiodiagnosis', 'pulmonary medicine', 'casualty', 'psychiatry', 'medicine symposium', 'medicine']: return 'General Medicine'
+        if s_lower in ['paediatrics', 'pediatrics']: return 'Pediatrics'
+        if s_lower in ['obstetrics & gynaecology', 'og', 'og symposium', 'obstetrics and gynecology']: return 'Obstetrics and Gynecology'
+        return subject
+        
+    if batch_year == 2022:
+        if s_lower in ['community medicine', 'psm', 'preventive and social medicine']: return 'Community Medicine'
+        if s_lower in ['ent', 'oto-rhino-laryngology', 'otorhinolaryngology']: return 'Otorhinolaryngology'
+        if s_lower in ['ophthalmology', 'eye']: return 'Ophthalmology'
+        return subject
+        
+    return subject
 
 def get_period_details(date, period_num, batch_year, batch_group):
     day_name = date.strftime('%A')
@@ -206,14 +225,14 @@ def get_period_details(date, period_num, batch_year, batch_group):
     
     if batch_year == 2022:
         weekly_timetable = {
-            'Monday': {1: ('Ophthalmology', 'Theory'), 2: ('Medicine', 'Theory'), 5: ('Modular Teaching', 'Practical')},
-            'Tuesday': {1: ('Surgery', 'Theory'), 2: ('Community Medicine', 'Theory'), 5: ('Modular Teaching', 'Practical')},
-            'Wednesday': {1: ('ENT', 'Theory'), 2: ('OG', 'Theory'), 5: ('Community Medicine', 'Practical')},
-            'Thursday': {1: ('Surgery', 'Theory'), 2: ('Dermatology', 'Theory'), 5: (None, None)},
-            'Friday': {1: ('Ophthalmology', 'Theory'), 2: ('ENT', 'Theory'), 5: ('Modular Teaching', 'Practical')},
-            'Saturday': {1: ('OG', 'Theory'), 2: ('ENT', 'Theory'), 5: (None, None)}
+            'Monday': {1: ('Ophthalmology', 'Theory'), 2: ('Medicine', 'Theory')},
+            'Tuesday': {1: ('Surgery', 'Theory'), 2: ('Community Medicine', 'Theory')},
+            'Wednesday': {1: ('ENT', 'Theory'), 2: ('OG', 'Theory')},
+            'Thursday': {1: ('Surgery', 'Theory'), 2: ('Dermatology', 'Theory')},
+            'Friday': {1: ('Ophthalmology', 'Theory'), 2: ('ENT', 'Theory')},
+            'Saturday': {1: ('OG', 'Theory'), 2: ('ENT', 'Theory')}
         }
-        if period_num in [1, 2, 5]:
+        if period_num in [1, 2]:
             subject, p_type = weekly_timetable.get(day_name, {}).get(period_num, (None, None))
             
         if period_num == 3:
@@ -227,7 +246,8 @@ def get_period_details(date, period_num, batch_year, batch_group):
             elif datetime.date(2026, 5, 11) <= date <= datetime.date(2026, 5, 23):
                 p3_map = {'A': 'ENT', 'B': 'Ophthalmology', 'C': 'Dermatology', 'D': 'Casualty'}
                 subject = p3_map.get(batch_group)
-        is_interactive = subject in ['Community Medicine', 'Ophthalmology', 'ENT']
+                
+        is_interactive = get_bucket(batch_year, subject) in ['Community Medicine', 'Ophthalmology', 'Otorhinolaryngology']
         
     elif batch_year == 2021:
         weekly_timetable = {
@@ -256,15 +276,6 @@ def get_period_details(date, period_num, batch_year, batch_group):
         
     return subject, p_type, is_interactive
 
-def get_bucket(batch_year, subject):
-    if batch_year == 2022 or not subject: return subject
-    s_lower = subject.lower()
-    if s_lower in ['general surgery', 'anaesthesiology', 'orthopedics', 'dentistry', 'operative surgery', 'surgery symposium', 'surgery']: return 'General Surgery'
-    if s_lower in ['general medicine', 'infectious diseases', 'dermatology (skin)', 'radiodiagnosis', 'pulmonary medicine', 'casualty', 'psychiatry', 'medicine symposium', 'medicine']: return 'General Medicine'
-    if s_lower in ['paediatrics', 'pediatrics']: return 'Pediatrics'
-    if s_lower in ['obstetrics & gynaecology', 'og', 'og symposium', 'obstetrics and gynecology']: return 'Obstetrics and Gynecology'
-    return subject
-
 def generate_pdf_report(df_combined, latest_date, end_date, batch_year, batch_group, target_subjects, active_periods, sim_memory):
     pdf = FPDF()
     pdf.add_page()
@@ -280,22 +291,15 @@ def generate_pdf_report(df_combined, latest_date, end_date, batch_year, batch_gr
     
     for target_bucket in target_subjects:
         t_pres = t_abs = p_pres = p_abs = 0
-        if batch_year == 2021:
-            for _, row in df_combined.iterrows():
-                subj_name = row['Subject']
-                if pd.notna(subj_name) and get_bucket(2021, str(subj_name).strip()) == target_bucket:
-                    t_pres += int(clean_numeric_column(pd.Series([row['Theory Present']]))[0])
-                    t_abs += int(clean_numeric_column(pd.Series([row['Theory Absent']]))[0])
-                    p_pres += int(clean_numeric_column(pd.Series([row['Practical Present']]))[0])
-                    p_abs += int(clean_numeric_column(pd.Series([row['Practical Absent']]))[0])
-        else:
-            excel_subject_name = 'OTO-RHINO-LARYNGOLOGY' if target_bucket == 'ENT' else target_bucket
-            base_row = df_combined[df_combined['Subject'].str.contains(excel_subject_name, case=False, na=False)]
-            if not base_row.empty:
-                t_pres = int(clean_numeric_column(pd.Series([base_row['Theory Present'].values[0]]))[0])
-                t_abs = int(clean_numeric_column(pd.Series([base_row['Theory Absent'].values[0]]))[0])
-                p_pres = int(clean_numeric_column(pd.Series([base_row['Practical Present'].values[0]]))[0])
-                p_abs = int(clean_numeric_column(pd.Series([base_row['Practical Absent'].values[0]]))[0])
+        
+        # Universal Iterative Aggregation across batches
+        for _, row in df_combined.iterrows():
+            subj_name = row['Subject']
+            if pd.notna(subj_name) and get_bucket(batch_year, str(subj_name).strip()) == target_bucket:
+                t_pres += int(clean_numeric_column(pd.Series([row['Theory Present']]))[0])
+                t_abs += int(clean_numeric_column(pd.Series([row['Theory Absent']]))[0])
+                p_pres += int(clean_numeric_column(pd.Series([row['Practical Present']]))[0])
+                p_abs += int(clean_numeric_column(pd.Series([row['Practical Absent']]))[0])
         
         fut_t_tot = fut_p_tot = sim_t_pres = sim_t_abs = sim_p_pres = sim_p_abs = 0
         sim_dt = latest_date + datetime.timedelta(days=1)
@@ -350,30 +354,30 @@ def generate_pdf_report(df_combined, latest_date, end_date, batch_year, batch_gr
             pdf.cell(190, 8, txt=f"  Week of {start_of_week.strftime('%d %B, %Y')}", ln=True, fill=True)
             weeks_processed.append(start_of_week)
             
-            for i in range(6): 
-                sim_day = start_of_week + datetime.timedelta(days=i)
-                if latest_date < sim_day <= end_date:
-                    holiday_check, h_name = is_holiday(sim_day, batch_year)
-                    if holiday_check:
-                        pdf.set_font("Arial", 'I', 10)
-                        pdf.cell(200, 6, txt=f"    {sim_day.strftime('%A, %b %d')}: {h_name}", ln=True)
-                        continue
-                        
-                    daily_classes = []
-                    for p in active_periods:
-                        subj, p_type, is_int = get_period_details(sim_day, p, batch_year, batch_group)
-                        if is_int:
-                            will_attend = sim_memory.get(f"{sim_day}_{p}", True)
-                            status = "ATTEND" if will_attend else "SKIP" 
-                            daily_classes.append(f"P{p}: {subj} ({status})")
+        for i in range(6): 
+            sim_day = start_of_week + datetime.timedelta(days=i)
+            if latest_date < sim_day <= end_date:
+                holiday_check, h_name = is_holiday(sim_day, batch_year)
+                if holiday_check:
+                    pdf.set_font("Arial", 'I', 10)
+                    pdf.cell(200, 6, txt=f"    {sim_day.strftime('%A, %b %d')}: {h_name}", ln=True)
+                    continue
                     
-                    if daily_classes:
-                        pdf.set_font("Arial", 'B', 10)
-                        pdf.cell(0, 6, txt=f"    {sim_day.strftime('%A, %b %d')}:", ln=True)
-                        pdf.set_font("Arial", size=10)
-                        pdf.set_x(25) 
-                        pdf.multi_cell(0, 6, txt=" | ".join(daily_classes))
-                        pdf.ln(2) 
+                daily_classes = []
+                for p in active_periods:
+                    subj, p_type, is_int = get_period_details(sim_day, p, batch_year, batch_group)
+                    if is_int:
+                        will_attend = sim_memory.get(f"{sim_day}_{p}", True)
+                        status = "ATTEND" if will_attend else "SKIP" 
+                        daily_classes.append(f"P{p}: {subj} ({status})")
+            
+                if daily_classes:
+                    pdf.set_font("Arial", 'B', 10)
+                    pdf.cell(0, 6, txt=f"    {sim_day.strftime('%A, %b %d')}:", ln=True)
+                    pdf.set_font("Arial", size=10)
+                    pdf.set_x(25) 
+                    pdf.multi_cell(0, 6, txt=" | ".join(daily_classes))
+                    pdf.ln(2) 
         current_dt += datetime.timedelta(days=1)
 
     try: return pdf.output(dest='S').encode('latin-1')
@@ -395,7 +399,7 @@ st.title("Attendance Tracker & Simulator")
 with st.expander("Data Upload & Setup", expanded=True):
     st.markdown("### Step 1: Select your details")
     col_batch, col_group = st.columns(2)
-    with col_batch: batch_year = st.selectbox("Select Batch Year", [2021, 2022, 2023, 2024, 2025], index=0)
+    with col_batch: batch_year = st.selectbox("Select Batch Year", [2021, 2022, 2023, 2024, 2025], index=1) # Defaulted to 2022
     with col_group: batch_group = st.radio("Select Batch Group (JIPMER Karaikal - Batch D)", ['A', 'B', 'C', 'D'], horizontal=True)
 
     if batch_year > 2022:
@@ -420,9 +424,12 @@ with st.expander("Data Upload & Setup", expanded=True):
             st.error("Failed to retrieve Student ID. Your session might be expired. Please get a fresh JSESSIONID.")
             st.stop()
             
-        # Determine Session IDs based on Group
-        if batch_group in ['A', 'B', 'C']: session_ids = [5271, 5272, 5273]
-        else: session_ids = [5276, 5277, 5278]
+        # Determine Session IDs based on Batch Year and Group
+        if batch_year == 2022:
+            session_ids = [5468, 5469, 5470]
+        else: # Default 2021 routing
+            if batch_group in ['A', 'B', 'C']: session_ids = [5271, 5272, 5273]
+            else: session_ids = [5276, 5277, 5278]
             
         with st.spinner(f"Extracting attendance records for {len(session_ids)} years. This may take a moment..."):
             df_date, df_subj_combined, status = fetch_attendance_data(jsession_id, student_id, session_ids)
@@ -456,9 +463,9 @@ if batch_year == 2021:
     end_date = datetime.date(2026, 5, 15)
     active_periods = [1, 2, 3, 5, 6, 7]
 else:
-    target_subjects = ['Community Medicine', 'Ophthalmology', 'ENT']
+    target_subjects = ['Community Medicine', 'Ophthalmology', 'Otorhinolaryngology']
     end_date = datetime.date(2026, 5, 23)
-    active_periods = [1, 2, 3, 5]
+    active_periods = [1, 2, 3]
 
 all_future_keys = []
 temp_dt = latest_date + datetime.timedelta(days=1)
@@ -501,6 +508,7 @@ with tab1:
     with cal_col:
         current_dt = latest_date
         weeks = []
+        
         while current_dt <= end_date:
             start_of_week = current_dt - datetime.timedelta(days=current_dt.weekday())
             if start_of_week not in weeks: weeks.append(start_of_week)
@@ -544,8 +552,7 @@ with tab1:
                     subject, p_type, is_interactive = get_period_details(current_day, p, batch_year, batch_group)
                     
                     if not subject:
-                        if batch_year == 2022:
-                            st.markdown(f"<div class='period-box'><span class='period-time'>{period_times[p]}</span><i>Free</i></div>", unsafe_allow_html=True)
+                        st.markdown(f"<div class='period-box'><span class='period-time'>{period_times[p]}</span><i>Free</i></div>", unsafe_allow_html=True)
                         continue
                         
                     box_class = "period-box"
@@ -553,7 +560,7 @@ with tab1:
                     
                     if current_day <= latest_date or not is_interactive:
                         status_text = ""
-                        should_check_past = True if batch_year == 2021 else (subject in target_subjects)
+                        should_check_past = True
                         
                         if current_day <= latest_date and should_check_past:
                             p_col = get_col_name(df_date, f'Period {p}')
@@ -577,22 +584,14 @@ with tab1:
         for target_bucket in target_subjects:
             t_pres = t_abs = p_pres = p_abs = 0
             
-            if batch_year == 2021:
-                for _, row in df_subj_combined.iterrows():
-                    subj_name = row['Subject']
-                    if pd.notna(subj_name) and get_bucket(2021, str(subj_name).strip()) == target_bucket:
-                        t_pres += int(clean_numeric_column(pd.Series([row['Theory Present']]))[0])
-                        t_abs += int(clean_numeric_column(pd.Series([row['Theory Absent']]))[0])
-                        p_pres += int(clean_numeric_column(pd.Series([row['Practical Present']]))[0])
-                        p_abs += int(clean_numeric_column(pd.Series([row['Practical Absent']]))[0])
-            else:
-                excel_subject_name = 'OTO-RHINO-LARYNGOLOGY' if target_bucket == 'ENT' else target_bucket
-                base_row = df_subj_combined[df_subj_combined['Subject'].str.contains(excel_subject_name, case=False, na=False)]
-                if not base_row.empty:
-                    t_pres = int(clean_numeric_column(pd.Series([base_row['Theory Present'].values[0]]))[0])
-                    t_abs = int(clean_numeric_column(pd.Series([base_row['Theory Absent'].values[0]]))[0])
-                    p_pres = int(clean_numeric_column(pd.Series([base_row['Practical Present'].values[0]]))[0])
-                    p_abs = int(clean_numeric_column(pd.Series([base_row['Practical Absent'].values[0]]))[0])
+            # Universal Iterative Aggregation across batches
+            for _, row in df_subj_combined.iterrows():
+                subj_name = row['Subject']
+                if pd.notna(subj_name) and get_bucket(batch_year, str(subj_name).strip()) == target_bucket:
+                    t_pres += int(clean_numeric_column(pd.Series([row['Theory Present']]))[0])
+                    t_abs += int(clean_numeric_column(pd.Series([row['Theory Absent']]))[0])
+                    p_pres += int(clean_numeric_column(pd.Series([row['Practical Present']]))[0])
+                    p_abs += int(clean_numeric_column(pd.Series([row['Practical Absent']]))[0])
             
             fut_t_tot = fut_p_tot = 0
             sim_t_pres = sim_t_abs = sim_p_pres = sim_p_abs = 0
@@ -653,12 +652,12 @@ with tab2:
     st.markdown("### Cumulative Subject-wise Attendance")
     st.info("Displays final aggregated percentages directly pulled from TCS iON across your sessions.")
     
-    if batch_year == 2021:
+    if batch_year in [2021, 2022]:
         for target_bucket in target_subjects:
             t_pres = t_abs = p_pres = p_abs = 0
             for _, row in df_subj_combined.iterrows():
                 subj_name = row['Subject']
-                if pd.notna(subj_name) and get_bucket(2021, str(subj_name).strip()) == target_bucket:
+                if pd.notna(subj_name) and get_bucket(batch_year, str(subj_name).strip()) == target_bucket:
                     t_pres += int(clean_numeric_column(pd.Series([row['Theory Present']]))[0])
                     t_abs += int(clean_numeric_column(pd.Series([row['Theory Absent']]))[0])
                     p_pres += int(clean_numeric_column(pd.Series([row['Practical Present']]))[0])
