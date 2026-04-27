@@ -354,30 +354,32 @@ def generate_pdf_report(df_combined, latest_date, end_date, batch_year, batch_gr
             pdf.cell(190, 8, txt=f"  Week of {start_of_week.strftime('%d %B, %Y')}", ln=True, fill=True)
             weeks_processed.append(start_of_week)
             
-        for i in range(6): 
-            sim_day = start_of_week + datetime.timedelta(days=i)
-            if latest_date < sim_day <= end_date:
-                holiday_check, h_name = is_holiday(sim_day, batch_year)
-                if holiday_check:
-                    pdf.set_font("Arial", 'I', 10)
-                    pdf.cell(200, 6, txt=f"    {sim_day.strftime('%A, %b %d')}: {h_name}", ln=True)
-                    continue
-                    
-                daily_classes = []
-                for p in active_periods:
-                    subj, p_type, is_int = get_period_details(sim_day, p, batch_year, batch_group)
-                    if is_int:
-                        will_attend = sim_memory.get(f"{sim_day}_{p}", True)
-                        status = "ATTEND" if will_attend else "SKIP" 
-                        daily_classes.append(f"P{p}: {subj} ({status})")
+            # FIXED: This loop is now indented INSIDE the if block
+            for i in range(6): 
+                sim_day = start_of_week + datetime.timedelta(days=i)
+                if latest_date < sim_day <= end_date:
+                    holiday_check, h_name = is_holiday(sim_day, batch_year)
+                    if holiday_check:
+                        pdf.set_font("Arial", 'I', 10)
+                        pdf.cell(200, 6, txt=f"    {sim_day.strftime('%A, %b %d')}: {h_name}", ln=True)
+                        continue
+                        
+                    daily_classes = []
+                    for p in active_periods:
+                        subj, p_type, is_int = get_period_details(sim_day, p, batch_year, batch_group)
+                        if is_int:
+                            will_attend = sim_memory.get(f"{sim_day}_{p}", True)
+                            status = "ATTEND" if will_attend else "SKIP" 
+                            daily_classes.append(f"P{p}: {subj} ({status})")
             
-                if daily_classes:
-                    pdf.set_font("Arial", 'B', 10)
-                    pdf.cell(0, 6, txt=f"    {sim_day.strftime('%A, %b %d')}:", ln=True)
-                    pdf.set_font("Arial", size=10)
-                    pdf.set_x(25) 
-                    pdf.multi_cell(0, 6, txt=" | ".join(daily_classes))
-                    pdf.ln(2) 
+                    if daily_classes:
+                        pdf.set_font("Arial", 'B', 10)
+                        pdf.cell(0, 6, txt=f"    {sim_day.strftime('%A, %b %d')}:", ln=True)
+                        pdf.set_font("Arial", size=10)
+                        pdf.set_x(25) 
+                        pdf.multi_cell(0, 6, txt=" | ".join(daily_classes))
+                        pdf.ln(2) 
+                        
         current_dt += datetime.timedelta(days=1)
 
     try: return pdf.output(dest='S').encode('latin-1')
