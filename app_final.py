@@ -213,7 +213,7 @@ def get_bucket(batch_year, subject):
         return subject
         
     if batch_year == 2022:
-        if s_lower in ['community medicine', 'psm', 'preventive and social medicine']: return 'Community Medicine'
+        if s_lower in ['community medicine', 'psm', 'preventive and social medicine', 'community medicine fhap']: return 'Community Medicine'
         if s_lower in ['ent', 'oto-rhino-laryngology', 'otorhinolaryngology']: return 'Otorhinolaryngology'
         if s_lower in ['ophthalmology', 'eye']: return 'Ophthalmology'
         return subject
@@ -228,12 +228,12 @@ def get_period_details(date, period_num, batch_year, batch_group):
         weekly_timetable = {
             'Monday': {1: ('Ophthalmology', 'Theory'), 2: ('Medicine', 'Theory')},
             'Tuesday': {1: ('Surgery', 'Theory'), 2: ('Community Medicine', 'Theory')},
-            'Wednesday': {1: ('ENT', 'Theory'), 2: ('OG', 'Theory')},
+            'Wednesday': {1: ('ENT', 'Theory'), 2: ('OG', 'Theory'), 5: ('Community Medicine FHAP', 'Practical')},
             'Thursday': {1: ('Surgery', 'Theory'), 2: ('Dermatology', 'Theory')},
             'Friday': {1: ('Ophthalmology', 'Theory'), 2: ('ENT', 'Theory')},
             'Saturday': {1: ('OG', 'Theory'), 2: ('ENT', 'Theory')}
         }
-        if period_num in [1, 2]:
+        if period_num in [1, 2, 5]:
             subject, p_type = weekly_timetable.get(day_name, {}).get(period_num, (None, None))
             
         if period_num == 3:
