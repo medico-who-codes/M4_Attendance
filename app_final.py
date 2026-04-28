@@ -484,12 +484,21 @@ tab1, tab2 = st.tabs(["Calendar & Simulation", "Subject-wise Summary"])
 
 # --- TAB 1: Calendar & Simulation ---
 with tab1:
-    period_times = {
-        1: "8:00 AM - 9:00 AM", 2: "9:00 AM - 1:00 PM", 
-        3: "11:50 AM - 12:50 PM", 4: "05:30 PM - 09:00 PM",
-        5: "2:00 PM - 3:00 PM", 6: "3:00 PM - 4:30 PM",
-        7: "4:30 PM - 05:30 PM", 8: "05:30 PM - 09:00 PM", 9: "09:00 PM - 11:30 PM"
-    }
+    if batch_year == 2022:
+        period_times = {
+            1: "8:00 AM - 9:00 AM", 2: "9:00 AM - 10:00 AM", 
+            3: "10:00 AM - 1:00 PM", 4: "05:30 PM - 09:00 PM",
+            5: "2:00 PM - 4:30 PM", 6: "3:00 PM - 4:30 PM",
+            7: "4:30 PM - 05:30 PM", 8: "05:30 PM - 09:00 PM", 9: "09:00 PM - 11:30 PM"
+        }
+    else:
+        # Default 2021 timings
+        period_times = {
+            1: "8:00 AM - 9:00 AM", 2: "9:00 AM - 1:00 PM", 
+            3: "11:50 AM - 12:50 PM", 4: "05:30 PM - 09:00 PM",
+            5: "2:00 PM - 3:00 PM", 6: "3:00 PM - 4:30 PM",
+            7: "4:30 PM - 05:30 PM", 8: "05:30 PM - 09:00 PM", 9: "09:00 PM - 11:30 PM"
+        }
     
     st.markdown("### Master Simulator Controls")
     c1, c2, c3, c4 = st.columns([1, 1, 1, 2])
