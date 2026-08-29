@@ -100,8 +100,8 @@ def fetch_attendance_data(jsession_id, student_id, session_ids):
     }
     cookies["CMS_CSRF"] = csrf_token
 
-    # Generate months dynamically for years 2022 to 2026
-    months = [f"{m:02d}##{y}" for y in range(2022, 2027) for m in range(1, 13)]
+    # Generate months dynamically for years 2022 to 2027
+    months = [f"{m:02d}##{y}" for y in range(2022, 2028) for m in range(1, 13)]
     
     all_subject_dfs = []
     latest_date_df = None
@@ -189,30 +189,51 @@ def get_col_name(df, target):
 
 def is_holiday(date, batch_year):
     if date.weekday() == 6: return True, "Sunday"
-    common_holidays = [datetime.date(2026, 3, 31), datetime.date(2026, 4, 3), 
-                       datetime.date(2026, 4, 9), datetime.date(2026, 4, 14), datetime.date(2026, 4, 23), datetime.date(2026, 5, 1)]
-    if date in common_holidays: return True, "Holiday"
-    
     
     if batch_year == 2022:
+        # Phase IV (8th & 9th semester) Academic Calendar 2026-27 - Annexure 1
+        common_holidays = {
+            datetime.date(2026, 8, 15): "Independence Day", datetime.date(2026, 8, 26): "Milad-un-Nabi",
+            datetime.date(2026, 9, 14): "Ganesh Chaturthi", datetime.date(2026, 10, 2): "Gandhi Jayanti",
+            datetime.date(2026, 10, 20): "Vijaya Dashami", datetime.date(2026, 11, 8): "Deepavali",
+            datetime.date(2026, 11, 24): "Guru Nanak's Birthday", datetime.date(2026, 12, 25): "Christmas",
+            datetime.date(2027, 1, 14): "Pongal", datetime.date(2027, 1, 26): "Republic Day",
+            datetime.date(2027, 3, 10): "Ramzan", datetime.date(2027, 3, 22): "Holi",
+            datetime.date(2027, 3, 26): "Good Friday", datetime.date(2027, 4, 19): "Mahavir Jayanti",
+            datetime.date(2027, 5, 17): "Bakri Id", datetime.date(2027, 5, 20): "Buddha Purnima"
+        }
+        if date in common_holidays: return True, common_holidays[date]
+        if datetime.date(2026, 12, 28) <= date <= datetime.date(2027, 1, 3): return True, "Vacation"
+        if datetime.date(2027, 4, 19) <= date <= datetime.date(2027, 4, 25): return True, "IA-3"
+        if date >= datetime.date(2027, 5, 14): return True, "Send-ups"
+        # IA-1, IA-2 and Spandan are not full holidays - clinical postings continue through them
+    elif batch_year == 2023:
+        common_holidays = [datetime.date(2026, 3, 31), datetime.date(2026, 4, 3), 
+                           datetime.date(2026, 4, 9), datetime.date(2026, 4, 14), datetime.date(2026, 4, 23), datetime.date(2026, 5, 1)]
+        if date in common_holidays: return True, "Holiday"
         if datetime.date(2026, 4, 18) <= date <= datetime.date(2026, 4, 27): return True, "Internals"
-    elif batch_year == 2021:
-        if datetime.date(2026, 4, 20) <= date <= datetime.date(2026, 4, 25): return True, "Internals"
-        if date == datetime.date(2026, 5, 16): return True, "Send-ups"
     return False, ""
+
+def is_theory_suspended(date, batch_year):
+    # Theory classes stop for IA-1, IA-2 and Spandan, but clinical postings are still scheduled
+    if batch_year != 2022: return False
+    if datetime.date(2026, 10, 12) <= date <= datetime.date(2026, 10, 17): return True
+    if datetime.date(2026, 10, 26) <= date <= datetime.date(2026, 10, 31): return True
+    if datetime.date(2027, 2, 22) <= date <= datetime.date(2027, 2, 27): return True
+    return False
 
 def get_bucket(batch_year, subject):
     if not subject: return subject
     s_lower = str(subject).strip().lower()
     
-    if batch_year == 2021:
-        if s_lower in ['general surgery', 'anaesthesiology', 'orthopedics', 'dentistry', 'operative surgery', 'surgery symposium', 'surgery']: return 'General Surgery'
+    if batch_year == 2022:
+        if s_lower in ['general surgery', 'anaesthesiology', 'orthopedics', 'orthopaedics', 'dentistry', 'operative surgery', 'surgery symposium', 'surgery']: return 'General Surgery'
         if s_lower in ['general medicine', 'infectious diseases', 'dermatology (skin)', 'radiodiagnosis', 'pulmonary medicine', 'casualty', 'psychiatry', 'medicine symposium', 'medicine']: return 'General Medicine'
         if s_lower in ['paediatrics', 'pediatrics']: return 'Pediatrics'
         if s_lower in ['obstetrics & gynaecology', 'og', 'og symposium', 'obstetrics and gynecology']: return 'Obstetrics and Gynecology'
         return subject
         
-    if batch_year == 2022:
+    if batch_year == 2023:
         if s_lower in ['community medicine', 'psm', 'preventive and social medicine', 'community medicine fhap']: return 'Community Medicine'
         if s_lower in ['ent', 'oto-rhino-laryngology', 'otorhinolaryngology']: return 'Otorhinolaryngology'
         if s_lower in ['ophthalmology', 'eye']: return 'Ophthalmology'
@@ -225,6 +246,62 @@ def get_period_details(date, period_num, batch_year, batch_group):
     subject, p_type, is_interactive = None, None, False
     
     if batch_year == 2022:
+        # IX semester timetable takes over from 18 Jan 2027 (Annexure 1)
+        if date >= datetime.date(2027, 1, 18):
+            weekly_timetable = {
+                'Monday': {1: ('Pediatrics', 'Theory'), 5: ('Orthopedics', 'Theory'), 6: ('Surgery Symposium', 'Theory')},
+                'Tuesday': {1: ('Surgery', 'Theory'), 5: ('Pediatrics', 'Theory'), 6: ('Medicine Symposium', 'Theory')},
+                'Wednesday': {1: ('Medicine', 'Theory'), 5: ('OG', 'Theory'), 6: ('Operative Surgery', 'Theory')},
+                'Thursday': {1: ('Surgery', 'Theory'), 5: ('Pediatrics', 'Theory'), 6: ('OG Symposium', 'Theory')},
+                'Friday': {1: ('OG', 'Theory'), 5: ('Pediatrics', 'Theory')},
+                'Saturday': {1: ('Medicine', 'Theory')}
+            }
+        else:
+            weekly_timetable = {
+                'Monday': {1: ('Pediatrics', 'Theory'), 5: ('Orthopedics', 'Theory'), 6: ('Surgery Symposium', 'Theory')},
+                'Tuesday': {1: ('Surgery', 'Theory'), 5: ('Pediatrics', 'Theory'), 6: ('Medicine Symposium', 'Theory')},
+                'Wednesday': {1: ('Medicine', 'Theory'), 5: ('OG', 'Theory')},
+                'Thursday': {1: ('Surgery', 'Theory'), 5: ('Pediatrics', 'Theory'), 6: ('OG Symposium', 'Theory')},
+                'Friday': {1: ('OG', 'Theory'), 5: ('Orthopedics', 'Theory'), 6: ('Operative Surgery', 'Theory')},
+                'Saturday': {1: ('Medicine', 'Theory')}
+            }
+        if period_num in [1, 5, 6] and not is_theory_suspended(date, batch_year):
+            subject, p_type = weekly_timetable.get(day_name, {}).get(period_num, (None, None))
+            
+        p2_subject = None
+        # VIII semester clinical postings
+        if datetime.date(2026, 7, 27) <= date <= datetime.date(2026, 9, 6):
+            p2_map = {'A': 'Medicine', 'B': 'Surgery', 'C': 'OG', 'D': 'Orthopedics'}
+            p2_subject = p2_map.get(batch_group)
+        elif datetime.date(2026, 9, 7) <= date <= datetime.date(2026, 10, 18):
+            p2_map = {'A': 'Surgery', 'B': 'OG', 'C': 'Orthopedics', 'D': 'Medicine'}
+            p2_subject = p2_map.get(batch_group)
+        elif datetime.date(2026, 10, 19) <= date <= datetime.date(2026, 11, 29):
+            p2_map = {'A': 'OG', 'B': 'Orthopedics', 'C': 'Medicine', 'D': 'Surgery'}
+            p2_subject = p2_map.get(batch_group)
+        elif datetime.date(2026, 11, 30) <= date <= datetime.date(2027, 1, 17):
+            p2_map = {'A': 'Orthopedics', 'B': 'Medicine', 'C': 'Surgery', 'D': 'OG'}
+            p2_subject = p2_map.get(batch_group)
+        # IX semester clinical postings
+        elif datetime.date(2027, 1, 18) <= date <= datetime.date(2027, 2, 14):
+            p2_map = {'A': 'Medicine', 'B': 'Surgery', 'C': 'OG', 'D': 'Pediatrics'}
+            p2_subject = p2_map.get(batch_group)
+        elif datetime.date(2027, 2, 15) <= date <= datetime.date(2027, 3, 14):
+            p2_map = {'A': 'Surgery', 'B': 'OG', 'C': 'Pediatrics', 'D': 'Medicine'}
+            p2_subject = p2_map.get(batch_group)
+        elif datetime.date(2027, 3, 15) <= date <= datetime.date(2027, 4, 11):
+            p2_map = {'A': 'OG', 'B': 'Pediatrics', 'C': 'Medicine', 'D': 'Surgery'}
+            p2_subject = p2_map.get(batch_group)
+        elif datetime.date(2027, 4, 12) <= date <= datetime.date(2027, 5, 13):
+            p2_map = {'A': 'Pediatrics', 'B': 'Medicine', 'C': 'Surgery', 'D': 'OG'}
+            p2_subject = p2_map.get(batch_group)
+            
+        if period_num == 2 and p2_subject: subject, p_type = p2_subject, 'Practical'
+        if period_num in [3,7] and p2_subject == 'OG': subject, p_type = 'OG', 'Practical'
+
+        is_interactive = subject is not None 
+        
+    elif batch_year == 2023:
         weekly_timetable = {
             'Monday': {1: ('Ophthalmology', 'Theory'), 2: ('Medicine', 'Theory')},
             'Tuesday': {1: ('Surgery', 'Theory'), 2: ('Community Medicine', 'Theory')},
@@ -249,31 +326,6 @@ def get_period_details(date, period_num, batch_year, batch_group):
                 subject = p3_map.get(batch_group)
                 
         is_interactive = get_bucket(batch_year, subject) in ['Community Medicine', 'Ophthalmology', 'Otorhinolaryngology']
-        
-    elif batch_year == 2021:
-        weekly_timetable = {
-            'Monday': {1: ('Pediatrics', 'Theory'), 5: ('Orthopedics', 'Theory'), 6: ('Surgery Symposium', 'Theory')},
-            'Tuesday': {1: ('Surgery', 'Theory'), 5: ('Pediatrics', 'Theory'), 6: ('Medicine Symposium', 'Theory')},
-            'Wednesday': {1: ('Medicine', 'Theory'), 5: ('OG', 'Theory'), 6: ('Operative Surgery', 'Theory')},
-            'Thursday': {1: ('Surgery', 'Theory'), 5: ('Pediatrics', 'Theory'), 6: ('OG Symposium', 'Theory')},
-            'Friday': {1: ('OG', 'Theory'), 5: ('Pediatrics', 'Theory')},
-            'Saturday': {1: ('Medicine', 'Theory')}
-        }
-        if period_num in [1, 5, 6]:
-            subject, p_type = weekly_timetable.get(day_name, {}).get(period_num, (None, None))
-            
-        p2_subject = None
-        if datetime.date(2026, 3, 16) <= date <= datetime.date(2026, 4, 12):
-            p2_map = {'A': 'OG', 'B': 'Pediatrics', 'C': 'Medicine', 'D': 'Surgery'}
-            p2_subject = p2_map.get(batch_group)
-        elif datetime.date(2026, 4, 13) <= date <= datetime.date(2026, 4, 19) or datetime.date(2026, 4, 27) <= date <= datetime.date(2026, 5, 15):
-            p2_map = {'A': 'Pediatrics', 'B': 'Medicine', 'C': 'Surgery', 'D': 'OG'}
-            p2_subject = p2_map.get(batch_group)
-            
-        if period_num == 2 and p2_subject: subject, p_type = p2_subject, 'Practical'
-        if period_num in [3,7] and p2_subject == 'OG': subject, p_type = 'OG', 'Practical'
-
-        is_interactive = subject is not None 
         
     return subject, p_type, is_interactive
 
@@ -402,8 +454,8 @@ st.title("Attendance Tracker & Simulator")
 with st.expander("Data Upload & Setup", expanded=True):
     st.markdown("### Step 1: Select your details")
     col_batch, col_group = st.columns(2)
-    with col_batch: batch_year = st.selectbox("Select Batch Year", [2021, 2022, 2023, 2024, 2025], index=1) # Defaulted to 2022
-    with col_group: batch_group = st.radio("Select Batch Group (Batch 2021 JIPMER Karaikal - Batch D)", ['A', 'B', 'C', 'D'], horizontal=True)
+    with col_batch: batch_year = st.selectbox("Select Batch Year", [2022, 2023, 2024, 2025], index=0) # Defaulted to 2022
+    with col_group: batch_group = st.radio("Select Batch Group (as per the Batch list in the Academic Calendar)", ['A', 'B', 'C', 'D'], horizontal=True)
 
     if batch_year > 2022:
         st.info("Coming Soon! Keep attending classes...")
@@ -427,12 +479,8 @@ with st.expander("Data Upload & Setup", expanded=True):
             st.error("Failed to retrieve Student ID. Your session might be expired. Please get a fresh JSESSIONID.")
             st.stop()
             
-        # Determine Session IDs based on Batch Year and Group
-        if batch_year == 2022:
-            session_ids = [5468, 5469, 5470]
-        else: # Default 2021 routing
-            if batch_group in ['A', 'B', 'C']: session_ids = [5271, 5272, 5273]
-            else: session_ids = [5276, 5277, 5278]
+        # Determine Session IDs based on Batch Year
+        session_ids = [5469, 5470, 5471]
             
         with st.spinner(f"Extracting attendance records for {len(session_ids)} years. This may take a moment..."):
             df_date, df_subj_combined, status = fetch_attendance_data(jsession_id, student_id, session_ids)
@@ -461,9 +509,9 @@ latest_date = df_date[date_col].max()
 
 st.markdown(f"<h4 style='text-align: right; color: #4CAF50;'>Attendance dynamically updated till {latest_date.strftime('%d %B, %Y')}</h4>", unsafe_allow_html=True)
 
-if batch_year == 2021:
+if batch_year == 2022:
     target_subjects = ['General Medicine', 'General Surgery', 'Pediatrics', 'Obstetrics and Gynecology']
-    end_date = datetime.date(2026, 5, 15)
+    end_date = datetime.date(2027, 5, 13)
     active_periods = [1, 2, 5, 6]
 else:
     target_subjects = ['Community Medicine', 'Ophthalmology', 'Otorhinolaryngology']
@@ -484,7 +532,7 @@ tab1, tab2 = st.tabs(["Calendar & Simulation", "Subject-wise Summary"])
 
 # --- TAB 1: Calendar & Simulation ---
 with tab1:
-    if batch_year == 2022:
+    if batch_year == 2023:
         period_times = {
             1: "8:00 AM - 9:00 AM", 2: "9:00 AM - 10:00 AM", 
             3: "10:00 AM - 1:00 PM", 4: "05:30 PM - 09:00 PM",
@@ -492,7 +540,7 @@ with tab1:
             7: "4:30 PM - 05:30 PM", 8: "05:30 PM - 09:00 PM", 9: "09:00 PM - 11:30 PM"
         }
     else:
-        # Default 2021 timings
+        # Default 2022 timings
         period_times = {
             1: "8:00 AM - 9:00 AM", 2: "9:00 AM - 1:00 PM", 
             3: "11:50 AM - 12:50 PM", 4: "05:30 PM - 09:00 PM",
@@ -664,7 +712,7 @@ with tab2:
     st.markdown("### Cumulative Subject-wise Attendance")
     st.info("Displays final aggregated percentages directly pulled from TCS iON across your sessions.")
     
-    if batch_year in [2021, 2022]:
+    if batch_year in [2022, 2023]:
         for target_bucket in target_subjects:
             t_pres = t_abs = p_pres = p_abs = 0
             for _, row in df_subj_combined.iterrows():
