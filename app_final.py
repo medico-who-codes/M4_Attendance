@@ -59,7 +59,7 @@ def get_tcs_student_id(jsession_id):
         if response.status_code == 200 and response.text != "noaccess":
             data = response.json()
             return data.get("studentId")
-    except Exception as e:
+    except Exception:
         pass
     return None
 
@@ -137,7 +137,7 @@ def fetch_attendance_data(jsession_id, student_id, session_ids):
                 
                 if structured_data:
                     latest_date_df = pd.DataFrame(structured_data.values())
-            except:
+            except Exception:
                 pass
 
         # Fetch SubjectWise Data
@@ -169,7 +169,7 @@ def fetch_attendance_data(jsession_id, student_id, session_ids):
                     })
                 if pivot_data:
                     all_subject_dfs.append(pd.DataFrame(pivot_data))
-            except:
+            except Exception:
                 pass
 
     if not all_subject_dfs or latest_date_df is None:
@@ -191,7 +191,6 @@ def is_holiday(date, batch_year):
     if date.weekday() == 6: return True, "Sunday"
     
     if batch_year == 2022:
-        # Phase IV (8th & 9th semester) Academic Calendar 2026-27 - Annexure 1
         common_holidays = {
             datetime.date(2026, 8, 15): "Independence Day", datetime.date(2026, 8, 26): "Milad-un-Nabi",
             datetime.date(2026, 9, 14): "Ganesh Chaturthi", datetime.date(2026, 10, 2): "Gandhi Jayanti",
@@ -206,7 +205,6 @@ def is_holiday(date, batch_year):
         if datetime.date(2026, 12, 28) <= date <= datetime.date(2027, 1, 3): return True, "Vacation"
         if datetime.date(2027, 4, 19) <= date <= datetime.date(2027, 4, 25): return True, "IA-3"
         if date >= datetime.date(2027, 5, 14): return True, "Send-ups"
-        # IA-1, IA-2 and Spandan are not full holidays - clinical postings continue through them
     elif batch_year == 2023:
         common_holidays = [datetime.date(2026, 3, 31), datetime.date(2026, 4, 3), 
                            datetime.date(2026, 4, 9), datetime.date(2026, 4, 14), datetime.date(2026, 4, 23), datetime.date(2026, 5, 1)]
@@ -215,7 +213,6 @@ def is_holiday(date, batch_year):
     return False, ""
 
 def is_theory_suspended(date, batch_year):
-    # Theory classes stop for IA-1, IA-2 and Spandan, but clinical postings are still scheduled
     if batch_year != 2022: return False
     if datetime.date(2026, 10, 12) <= date <= datetime.date(2026, 10, 17): return True
     if datetime.date(2026, 10, 26) <= date <= datetime.date(2026, 10, 31): return True
@@ -246,7 +243,6 @@ def get_period_details(date, period_num, batch_year, batch_group):
     subject, p_type, is_interactive = None, None, False
     
     if batch_year == 2022:
-        # IX semester timetable takes over from 18 Jan 2027 (Annexure 1)
         if date >= datetime.date(2027, 1, 18):
             weekly_timetable = {
                 'Monday': {1: ('Pediatrics', 'Theory'), 5: ('Orthopedics', 'Theory'), 6: ('Surgery Symposium', 'Theory')},
@@ -269,7 +265,6 @@ def get_period_details(date, period_num, batch_year, batch_group):
             subject, p_type = weekly_timetable.get(day_name, {}).get(period_num, (None, None))
             
         p2_subject = None
-        # VIII semester clinical postings
         if datetime.date(2026, 7, 27) <= date <= datetime.date(2026, 9, 6):
             p2_map = {'A': 'Medicine', 'B': 'Surgery', 'C': 'OG', 'D': 'Orthopedics'}
             p2_subject = p2_map.get(batch_group)
@@ -282,7 +277,6 @@ def get_period_details(date, period_num, batch_year, batch_group):
         elif datetime.date(2026, 11, 30) <= date <= datetime.date(2027, 1, 17):
             p2_map = {'A': 'Orthopedics', 'B': 'Medicine', 'C': 'Surgery', 'D': 'OG'}
             p2_subject = p2_map.get(batch_group)
-        # IX semester clinical postings
         elif datetime.date(2027, 1, 18) <= date <= datetime.date(2027, 2, 14):
             p2_map = {'A': 'Medicine', 'B': 'Surgery', 'C': 'OG', 'D': 'Pediatrics'}
             p2_subject = p2_map.get(batch_group)
@@ -297,7 +291,7 @@ def get_period_details(date, period_num, batch_year, batch_group):
             p2_subject = p2_map.get(batch_group)
             
         if period_num == 2 and p2_subject: subject, p_type = p2_subject, 'Practical'
-        if period_num in [3,7] and p2_subject == 'OG': subject, p_type = 'OG', 'Practical'
+        if period_num in [3, 7] and p2_subject == 'OG': subject, p_type = 'OG', 'Practical'
 
         is_interactive = subject is not None 
         
@@ -345,7 +339,6 @@ def generate_pdf_report(df_combined, latest_date, end_date, batch_year, batch_gr
     for target_bucket in target_subjects:
         t_pres = t_abs = p_pres = p_abs = 0
         
-        # Universal Iterative Aggregation across batches
         for _, row in df_combined.iterrows():
             subj_name = row['Subject']
             if pd.notna(subj_name) and get_bucket(batch_year, str(subj_name).strip()) == target_bucket:
@@ -407,7 +400,6 @@ def generate_pdf_report(df_combined, latest_date, end_date, batch_year, batch_gr
             pdf.cell(190, 8, txt=f"  Week of {start_of_week.strftime('%d %B, %Y')}", ln=True, fill=True)
             weeks_processed.append(start_of_week)
             
-            # FIXED: This loop is now indented INSIDE the if block
             for i in range(6): 
                 sim_day = start_of_week + datetime.timedelta(days=i)
                 if latest_date < sim_day <= end_date:
@@ -444,9 +436,17 @@ if 'data_fetched' not in st.session_state: st.session_state.data_fetched = False
 if 'df_date' not in st.session_state: st.session_state.df_date = None
 if 'df_subj_combined' not in st.session_state: st.session_state.df_subj_combined = None
 
-def update_sim_memory(key_name): st.session_state.sim_memory[key_name] = st.session_state[f"widget_{key_name}"]
+def update_sim_memory(key_name):
+    widget_val = st.session_state.get(f"widget_{key_name}", True)
+    st.session_state.sim_memory[key_name] = widget_val
+
 def bulk_toggle_memory(keys, target_state):
-    for key in keys: st.session_state.sim_memory[key] = target_state
+    for key in keys: 
+        st.session_state.sim_memory[key] = target_state
+        # Also update any currently mounted widget keys
+        widget_key = f"widget_{key}"
+        if widget_key in st.session_state:
+            st.session_state[widget_key] = target_state
 
 # --- App Layout & Setup ---
 st.title("Attendance Tracker & Simulator")
@@ -454,7 +454,7 @@ st.title("Attendance Tracker & Simulator")
 with st.expander("Data Upload & Setup", expanded=True):
     st.markdown("### Step 1: Select your details")
     col_batch, col_group = st.columns(2)
-    with col_batch: batch_year = st.selectbox("Select Batch Year", [2022, 2023, 2024, 2025], index=0) # Defaulted to 2022
+    with col_batch: batch_year = st.selectbox("Select Batch Year", [2022, 2023, 2024, 2025], index=0)
     with col_group: batch_group = st.radio("Select Batch Group (as per the Batch list in the Academic Calendar)", ['A', 'B', 'C', 'D'], horizontal=True)
 
     if batch_year > 2022:
@@ -479,7 +479,6 @@ with st.expander("Data Upload & Setup", expanded=True):
             st.error("Failed to retrieve Student ID. Your session might be expired. Please get a fresh JSESSIONID.")
             st.stop()
             
-        # Determine Session IDs based on Batch Year
         session_ids = [5469, 5470, 5471]
             
         with st.spinner(f"Extracting attendance records for {len(session_ids)} years. This may take a moment..."):
@@ -489,7 +488,6 @@ with st.expander("Data Upload & Setup", expanded=True):
                 st.error(status)
                 st.stop()
                 
-            # Save fetched data to session state to prevent refetching
             st.session_state.df_date = df_date
             st.session_state.df_subj_combined = df_subj_combined
             st.session_state.data_fetched = True
@@ -499,7 +497,6 @@ with st.expander("Data Upload & Setup", expanded=True):
 if not st.session_state.data_fetched:
     st.stop()
 
-# Retrieve stored data
 df_date = st.session_state.df_date
 df_subj_combined = st.session_state.df_subj_combined
 
@@ -525,7 +522,11 @@ while temp_dt <= end_date:
     if not holiday_check:
         for p in active_periods:
             sim_subj, _, is_int = get_period_details(temp_dt, p, batch_year, batch_group)
-            if is_int: all_future_keys.append(f"{temp_dt}_{p}")
+            if is_int: 
+                key = f"{temp_dt}_{p}"
+                all_future_keys.append(key)
+                if key not in st.session_state.sim_memory:
+                    st.session_state.sim_memory[key] = True
     temp_dt += datetime.timedelta(days=1)
 
 tab1, tab2 = st.tabs(["Calendar & Simulation", "Subject-wise Summary"])
@@ -540,7 +541,6 @@ with tab1:
             7: "4:30 PM - 05:30 PM", 8: "05:30 PM - 09:00 PM", 9: "09:00 PM - 11:30 PM"
         }
     else:
-        # Default 2022 timings
         period_times = {
             1: "8:00 AM - 9:00 AM", 2: "9:00 AM - 1:00 PM", 
             3: "11:50 AM - 12:50 PM", 4: "05:30 PM - 09:00 PM",
@@ -612,7 +612,6 @@ with tab1:
                     subject, p_type, is_interactive = get_period_details(current_day, p, batch_year, batch_group)
                     
                     if not subject:
-                        
                         continue
                         
                     box_class = "period-box"
@@ -620,22 +619,23 @@ with tab1:
                     
                     if current_day <= latest_date or not is_interactive:
                         status_text = ""
-                        should_check_past = True
-                        
-                        if current_day <= latest_date and should_check_past:
-                            p_col = get_col_name(df_date, f'Period {p}')
-                            past_row = df_date[df_date[date_col] == current_day]
-                            if not past_row.empty and p_col and pd.notna(past_row.iloc[0][p_col]) and str(past_row.iloc[0][p_col]).strip() != "":
-                                status_text = "<br><span style='color:#4CAF50;'>Present</span>" if int(past_row.iloc[0][p_col]) == 1 else "<br><span style='color:#FF4B4B;'>Absent</span>"
+                        p_col = get_col_name(df_date, f'Period {p}')
+                        past_row = df_date[df_date[date_col] == current_day]
+                        if not past_row.empty and p_col and pd.notna(past_row.iloc[0][p_col]) and str(past_row.iloc[0][p_col]).strip() != "":
+                            status_text = "<br><span style='color:#4CAF50;'>Present</span>" if int(past_row.iloc[0][p_col]) == 1 else "<br><span style='color:#FF4B4B;'>Absent</span>"
                         
                         st.markdown(f"<div class='{box_class}'><span class='period-time'>{period_times[p]}</span><b>{subject}</b><br><span style='font-size:0.8em; color:#ccc;'>{p_type}</span>{status_text}</div>", unsafe_allow_html=True)
                     
                     else:
                         state_key = f"{current_day}_{p}"
+                        w_key = f"widget_{state_key}"
+                        
+                        # Sync state to widget key before render
                         current_val = st.session_state.sim_memory.get(state_key, True)
+                        st.session_state[w_key] = current_val
                         
                         st.markdown(f"<div class='{box_class}' style='padding-bottom: 5px;'><span class='period-time'>{period_times[p]}</span><b>{subject}</b><br><span style='font-size:0.8em; color:#ccc;'>{p_type}</span>", unsafe_allow_html=True)
-                        st.checkbox("Attend", value=current_val, key=f"widget_{state_key}", on_change=update_sim_memory, args=(state_key,), label_visibility="collapsed")
+                        st.checkbox("Attend", key=w_key, on_change=update_sim_memory, args=(state_key,), label_visibility="collapsed")
                         st.markdown("</div>", unsafe_allow_html=True)
 
     with sim_col:
@@ -644,7 +644,6 @@ with tab1:
         for target_bucket in target_subjects:
             t_pres = t_abs = p_pres = p_abs = 0
             
-            # Universal Iterative Aggregation across batches
             for _, row in df_subj_combined.iterrows():
                 subj_name = row['Subject']
                 if pd.notna(subj_name) and get_bucket(batch_year, str(subj_name).strip()) == target_bucket:
