@@ -1,6 +1,6 @@
-streamlit>=1.32
-pandas>=2.0
-requests>=2.31
-plotly>=5.18
-fpdf2>=2.7
-playwright>=1.42
+streamlit
+pandas
+requests
+plotly
+fpdf2
+playwright
