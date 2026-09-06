@@ -2,5 +2,5 @@ streamlit
 pandas
 requests
 plotly
-fpdf
-playwright
+fpdf2
+
