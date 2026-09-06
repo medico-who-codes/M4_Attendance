@@ -829,9 +829,13 @@ if 'data_fetched' not in st.session_state: st.session_state.data_fetched = False
 if 'df_date' not in st.session_state: st.session_state.df_date = None
 if 'df_subj_combined' not in st.session_state: st.session_state.df_subj_combined = None
 
-def update_sim_memory(key_name): st.session_state.sim_memory[key_name] = st.session_state[f"widget_{key_name}"]
+def update_sim_memory(key_name): st.session_state.sim_memory[key_name] = st.session_state[f"cb_{key_name}"]
 def bulk_toggle_memory(keys, target_state):
     for key in keys: st.session_state.sim_memory[key] = target_state
+      # If the widget currently exists on the active page, sync its key too
+        cb_key = f"cb_{key}"
+        if cb_key in st.session_state:
+            st.session_state[cb_key] = target_state
 
 # --- App Layout & Setup ---
 st.title("Attendance Tracker & Simulator")
@@ -1025,10 +1029,21 @@ with tab1:
                     
                     else:
                         state_key = f"{current_day}_{p}"
-                        current_val = st.session_state.sim_memory.get(state_key, True)
-                        
+                        cb_key = f"cb_{state_key}"
+                      # Ensure persisted state exists
+                        if state_key not in st.session_state.sim_memory:
+                          st.session_state.sim_memory[state_key] = True
+                        # Sync widget key with persisted state before widget instantiation
+                        st.session_state[cb_key] = st.session_state.sim_memory[state_key]
+
                         st.markdown(f"<div class='{box_class}' style='padding-bottom: 5px;'><span class='period-time'>{period_times[p]}</span><b>{subject}</b><br><span style='font-size:0.8em; color:#ccc;'>{p_type}</span>", unsafe_allow_html=True)
-                        st.checkbox("Attend", value=current_val, key=f"widget_{state_key}", on_change=update_sim_memory, args=(state_key,), label_visibility="collapsed")
+                        st.checkbox(
+                            "Attend",
+                            key=cb_key,
+                            on_change=update_sim_memory,
+                            args=(state_key,),
+                            label_visibility="collapsed"
+                        )
                         st.markdown("</div>", unsafe_allow_html=True)
 
     with sim_col:
