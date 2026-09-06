@@ -833,9 +833,9 @@ def update_sim_memory(key_name): st.session_state.sim_memory[key_name] = st.sess
 def bulk_toggle_memory(keys, target_state):
     for key in keys: st.session_state.sim_memory[key] = target_state
       # If the widget currently exists on the active page, sync its key too
-      cb_key = f"cb_{key}"
-      if cb_key in st.session_state:
-        st.session_state[cb_key] = target_state
+    cb_key = f"cb_{key}"
+    if cb_key in st.session_state:
+      st.session_state[cb_key] = target_state
 
 # --- App Layout & Setup ---
 st.title("Attendance Tracker & Simulator")
