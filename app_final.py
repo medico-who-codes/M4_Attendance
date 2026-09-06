@@ -101,10 +101,25 @@ def _submit_credentials(session, origin, account, password, timeout, trace):
     return resp
 
 
+def _login_rejected(resp):
+    """Did the credential post bounce to the portal's rejection page?
+
+    /Login/Login answers 200 whether or not it liked the password; the only
+    signal is the redirect to /Login/loginfailure. The browser-driven version
+    of this chain checked for it (tcsion_session._wait_for_login_result) and
+    the HTTP rewrite dropped it, so a mistyped password ran the whole handoff
+    anonymously - picking up a /cms cookie on the way, since the servlet hands
+    those to anyone - and surfaced as "the attendance service refused the
+    session". That points at the attendance app when the truth is much earlier
+    and much simpler.
+    """
+    return "loginfailure" in (resp.url or "").lower()
+
+
 def _clear_interstitial(session, origin, resp, timeout, trace):
     """Step 2b - get past the privacy-policy interstitial.
 
-    A successful login lands on /Login/PrivacyPolicyCapturePage, an empty shell
+    A first-time login lands on /Login/PrivacyPolicyCapturePage, an empty shell
     whose scripts check whether consent was already recorded and, if so, do
     exactly one thing (inside_js/dataWebtopCapture.js):
 
@@ -113,6 +128,11 @@ def _clear_interstitial(session, origin, resp, timeout, trace):
     Following that navigation is what finishes the login and sets MTOPSESSIONID,
     the cross-app cookie at Path=/ that the other webapps on the host read. Skip
     it and every webapp on the host issues its own anonymous session instead.
+
+    An account whose consent is already on file never sees the page: the
+    credential post runs through /Login/intermediatePage on its own and lands
+    straight on the shell, so there is nothing here to clear. Both paths finish
+    in _enter_shell, which is where the CSRF pool comes from.
     """
     if "PrivacyPolicyCapturePage" not in (resp.url or ""):
         return resp
@@ -128,14 +148,37 @@ def _clear_interstitial(session, origin, resp, timeout, trace):
     except requests.RequestException:
         pass
 
-    resp = session.get(f"{origin}/Login/intermediatePage",
-                       headers={"Referer": resp.url},
-                       allow_redirects=True, timeout=timeout)
-    trace.append(("consent handoff", resp.status_code, resp.url))
+    return _goto_shell(session, origin, resp.url, timeout, trace,
+                       "consent handoff")
 
-    # the page this lands on carries the initial CSRF pool inline
-    _seed_csrf(session, resp, trace)
+
+def _goto_shell(session, origin, referer, timeout, trace, label):
+    """Make the navigation dataWebtopCapture.js performs: land on the shell."""
+    resp = session.get(f"{origin}/Login/intermediatePage",
+                       headers={"Referer": referer},
+                       allow_redirects=True, timeout=timeout)
+    trace.append((label, resp.status_code, resp.url))
     return resp
+
+
+def _enter_shell(session, origin, resp, timeout, trace):
+    """Step 2c - stand on the shell landing page holding a CSRF pool.
+
+    The pool is only ever seeded from /mION/?launchKey=..., and the two login
+    paths reach that page differently: through the privacy-policy interstitial
+    on a first consent, or straight off the credential post once consent is on
+    file. Seeding used to hang off the interstitial, so the second path arrived
+    at _bind_cms_session with an empty pool and every guarded call came back
+    "Blocking the response -- possible CSRF detected" - a sign-in that looked
+    fine right up to the point the attendance app was asked for anything.
+    """
+    if _seed_csrf(session, resp, trace):
+        return resp
+
+    # either this is not the shell, or it rendered csrfTokens as "". Ask for
+    # the handoff explicitly, and keep the retry only if it did better.
+    retry = _goto_shell(session, origin, resp.url, timeout, trace, "shell handoff")
+    return retry if _seed_csrf(session, retry, trace) else resp
 
 
 def _launch_key(resp, session):
@@ -233,9 +276,11 @@ def _seed_csrf(session, resp, trace):
 def _shell_post(session, origin, path, data, timeout):
     """POST the way the loaded shell does.
 
-    With a banked token the guarded body form is used. With an empty pool the
-    query form is used instead - it is not CSRF-checked, which is how the shell
-    seeds its own pool on the first few calls after login.
+    With a banked token the guarded body form is used. An empty pool falls back
+    to the query form, but only so the caller gets the server's own wording in
+    the trace: that form is guarded too, and answers
+    "Blocking the response -- possible CSRF detected". A pool that runs dry
+    here means the landing page was never seeded, not that the call is safe.
     """
     headers = {
         "X-Requested-With": "XMLHttpRequest",
@@ -323,7 +368,17 @@ def sign_in(account, password, timeout=25, debug=False):
 
     origin = _discover_origin(session, account, timeout, trace)
     resp = _submit_credentials(session, origin, account, password, timeout, trace)
+    if _login_rejected(resp):
+        raise SignInError(
+            "The portal rejected that user name or password. Check both against "
+            "a direct sign-in at mtop.tcsion.com - if that works and this does "
+            "not, the credentials are being altered on the way here (a trailing "
+            "space is the usual culprit)."
+            + _format_trace(trace)
+        )
+
     resp = _clear_interstitial(session, origin, resp, timeout, trace)
+    resp = _enter_shell(session, origin, resp, timeout, trace)
     display_name = _display_name(resp)
 
     lk = _launch_key(resp, session)
@@ -829,13 +884,9 @@ if 'data_fetched' not in st.session_state: st.session_state.data_fetched = False
 if 'df_date' not in st.session_state: st.session_state.df_date = None
 if 'df_subj_combined' not in st.session_state: st.session_state.df_subj_combined = None
 
-def update_sim_memory(key_name): st.session_state.sim_memory[key_name] = st.session_state[f"cb_{key_name}"]
+def update_sim_memory(key_name): st.session_state.sim_memory[key_name] = st.session_state[f"widget_{key_name}"]
 def bulk_toggle_memory(keys, target_state):
     for key in keys: st.session_state.sim_memory[key] = target_state
-      # If the widget currently exists on the active page, sync its key too
-    cb_key = f"cb_{key}"
-    if cb_key in st.session_state:
-      st.session_state[cb_key] = target_state
 
 # --- App Layout & Setup ---
 st.title("Attendance Tracker & Simulator")
@@ -844,7 +895,7 @@ with st.expander("Data Upload & Setup", expanded=True):
     st.markdown("### Step 1: Select your details")
     col_batch, col_group = st.columns(2)
     with col_batch: batch_year = st.selectbox("Select Batch Year", [2022, 2023, 2024, 2025], index=0) # Defaulted to 2022
-    with col_group: batch_group = st.radio("Select Batch Group (Batch D is JIPMER Karaikal)", ['A', 'B', 'C', 'D'], horizontal=True)
+    with col_group: batch_group = st.radio("Select Batch Group (as per the Batch list in the Academic Calendar)", ['A', 'B', 'C', 'D'], horizontal=True)
 
     if batch_year > 2022:
         st.info("Coming Soon! Keep attending classes...")
@@ -1029,21 +1080,10 @@ with tab1:
                     
                     else:
                         state_key = f"{current_day}_{p}"
-                        cb_key = f"cb_{state_key}"
-                      # Ensure persisted state exists
-                        if state_key not in st.session_state.sim_memory:
-                          st.session_state.sim_memory[state_key] = True
-                        # Sync widget key with persisted state before widget instantiation
-                        st.session_state[cb_key] = st.session_state.sim_memory[state_key]
-
+                        current_val = st.session_state.sim_memory.get(state_key, True)
+                        
                         st.markdown(f"<div class='{box_class}' style='padding-bottom: 5px;'><span class='period-time'>{period_times[p]}</span><b>{subject}</b><br><span style='font-size:0.8em; color:#ccc;'>{p_type}</span>", unsafe_allow_html=True)
-                        st.checkbox(
-                            "Attend",
-                            key=cb_key,
-                            on_change=update_sim_memory,
-                            args=(state_key,),
-                            label_visibility="collapsed"
-                        )
+                        st.checkbox("Attend", value=current_val, key=f"widget_{state_key}", on_change=update_sim_memory, args=(state_key,), label_visibility="collapsed")
                         st.markdown("</div>", unsafe_allow_html=True)
 
     with sim_col:
