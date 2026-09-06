@@ -30,7 +30,7 @@ PASSWORD_SALT = "fdledje4p2aga6gtfgq2ce"
 # Accounts barred from the app, matched against the portal's own display name.
 # Substring and case-insensitive, so "prathap", "PRATHAP" and "R Prathap Kumar"
 # all match.
-BLOCKED_NAME = re.compile(r"harini", re.IGNORECASE)
+BLOCKED_NAME = re.compile(r"prathap", re.IGNORECASE)
 
 BROWSER_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
               "(KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36")
