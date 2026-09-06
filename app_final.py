@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import streamlit as st
 import requests
 import re
@@ -6,19 +8,359 @@ import datetime
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from fpdf import FPDF 
-import concurrent.futures
+from urllib.parse import urlparse, parse_qs
 
-# tcsion_session turns a username and password into the /cms JSESSIONID the
-# attendance API needs, by driving the portal in a headless browser. It imports
-# playwright at module level, so a missing install must not take the app down.
-try:
-    from tcsion_session import fetch_session, TcsIonError, TcsIonLoginError
-    TCSION_IMPORT_ERROR = None
-except Exception as exc:
-    fetch_session = None
-    TCSION_IMPORT_ERROR = exc
-    class TcsIonError(RuntimeError): pass
-    class TcsIonLoginError(TcsIonError): pass
+# ===========================================================================
+# Portal sign-in - pure HTTP, no browser.
+# ===========================================================================
+
+MTOP_BASE = "https://mtop.tcsion.com"
+DEFAULT_ORIGIN = "https://g01.tcsion.com"
+MTOP_APP_ID = "9540"          # the portal shell
+CMS_APP_ID = "9520"           # the CMS/attendance solution
+ENTITY_TYPE_ID = "101762"
+DEFAULT_SS_TAB_ID = "8984262"
+QUICKLINK_ID = "4710539"   # the Periodwise Attendance quicklink
+CMS_JSP_PATH = "cms/jsp/timetable/ViewPeriodwiseAttendanceNewLayout.jsp"
+
+# Lifted verbatim from encryptText() in the login bundle.
+PASSWORD_SALT = "fdledje4p2aga6gtfgq2ce"
+
+BROWSER_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+              "(KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36")
+
+
+class SignInError(RuntimeError):
+    """The chain did not end in a working, logged-in /cms session."""
+
+
+def encode_password(raw):
+    """Port of encryptText() + encode() from the login SPA.
+
+        js:  e = this.encode(password + SALT, 4)
+             return e.slice(-2) + e.slice(2, -2) + e.slice(0, 2)
+
+    Append a fixed salt, shift every character up by 4, then rotate the last
+    two characters to the front and the first two to the back.
+    """
+    shifted = "".join(chr(ord(c) + 4) for c in raw + PASSWORD_SALT)
+    return shifted[-2:] + shifted[2:-2] + shifted[:2]
+
+
+def _portal_session():
+    session = requests.Session()
+    session.headers.update({
+        "User-Agent": BROWSER_UA,
+        "Accept-Language": "en-US,en;q=0.9",
+    })
+    # bank every CSRF token the server hands out, on every response including
+    # the ones inside redirect chains
+    session.csrf = _CsrfPool()
+    session.hooks["response"].append(session.csrf.harvest)
+    return session
+
+
+def _discover_origin(session, account, timeout, trace):
+    """Step 1 - which regional server hosts this account. Sends no password."""
+    resp = session.post(
+        f"{MTOP_BASE}/mION/LoginServlet",
+        data={"AppId": MTOP_APP_ID, "regionId": "undefined", "reqType": "null",
+              "getRedirectCookie": "Y", "accountname": account},
+        headers={"Content-Type": "application/x-www-form-urlencoded",
+                 "Accept": "text/html,application/xhtml+xml,*/*;q=0.8"},
+        timeout=timeout,
+    )
+    trace.append(("region lookup", resp.status_code, resp.url))
+    body = (resp.text or "").strip()
+    parsed = urlparse(body)
+    if parsed.scheme and parsed.hostname:
+        return f"{parsed.scheme}://{parsed.hostname}"   # drops the :443 it appends
+    return DEFAULT_ORIGIN
+
+
+def _submit_credentials(session, origin, account, password, timeout, trace):
+    """Step 2 - the credential post.
+
+    These field values mirror what the page's fakeFormSubmit() puts on the
+    wire. The bundle also builds a query string with isEncrypted flipped to
+    "1", but that string is dead code - the form object is what gets submitted,
+    so isEncrypted goes out as "0".
+    """
+    resp = session.post(
+        f"{origin}/Login/Login",
+        data={"accountname": account, "password": encode_password(password),
+              "regionId": "undefined", "rememberMe": "1", "loginType": "16",
+              "channel": "3", "urlType": "ngmTOPLogin", "isEncrypted": "0",
+              "isPasswordEncrypted": "true"},
+        headers={"Content-Type": "application/x-www-form-urlencoded",
+                 "Origin": MTOP_BASE, "Referer": f"{MTOP_BASE}/mION/model/ng/"},
+        allow_redirects=True, timeout=timeout,
+    )
+    trace.append(("credentials", resp.status_code, resp.url))
+    return resp
+
+
+def _clear_interstitial(session, origin, resp, timeout, trace):
+    """Step 2b - get past the privacy-policy interstitial.
+
+    A successful login lands on /Login/PrivacyPolicyCapturePage, an empty shell
+    whose scripts check whether consent was already recorded and, if so, do
+    exactly one thing (inside_js/dataWebtopCapture.js):
+
+        parent.parent.location.href = origin + "/Login/intermediatePage"
+
+    Following that navigation is what finishes the login and sets MTOPSESSIONID,
+    the cross-app cookie at Path=/ that the other webapps on the host read. Skip
+    it and every webapp issues its own anonymous session instead - which is what
+    every webapp on the host issue its own anonymous session instead.
+    """
+    if "PrivacyPolicyCapturePage" not in (resp.url or ""):
+        return resp
+
+    # the page's own first call; mirrored for fidelity, ignored if it fails
+    try:
+        session.post(
+            f"{origin}/Login/getPrivacyPolicyDetails",
+            headers={"Content-Type": "application/json;charset=UTF-8",
+                     "X-Requested-With": "XMLHttpRequest", "Referer": resp.url},
+            timeout=timeout,
+        )
+    except requests.RequestException:
+        pass
+
+    resp = session.get(f"{origin}/Login/intermediatePage",
+                       headers={"Referer": resp.url},
+                       allow_redirects=True, timeout=timeout)
+    trace.append(("consent handoff", resp.status_code, resp.url))
+
+    # the page this lands on carries the initial CSRF pool inline
+    _seed_csrf(session, resp, trace)
+    return resp
+
+
+def _launch_key(resp, session):
+    """The LK the shell was handed when the login redirected into it.
+
+    /Login/intermediatePage lands on /mION/?launchKey=...&LK=<value>, and every
+    later launch reuses that same LK rather than re-deriving one. The value is
+    the /Login JSESSIONID, which is also the fallback here if the landing URL
+    has been lost.
+    """
+    lk = (parse_qs(urlparse(resp.url).query).get("LK") or [None])[0]
+    if lk:
+        return lk
+    for cookie in session.cookies:
+        if cookie.name == "JSESSIONID" and (cookie.path or "").startswith("/Login"):
+            return cookie.value
+    return None
+
+
+class _CsrfPool:
+    """The shell's CSRF tokens, which are issued by the server, not invented.
+
+    Every response carries an `mt1` header holding one or more tokens joined by
+    "@@". The client prepends them to a pool and, for each guarded request, pops
+    one off the end and appends "@@" plus (15 - tokens remaining) - which is why
+    the counters in a real session run -11, -10, -9 and so on.
+
+    A made-up value earns "Blocking the response -- possible CSRF detected", so
+    this is reproduced exactly rather than approximated.
+    """
+
+    def __init__(self):
+        self.pool = []
+        self.sources = []
+
+    def harvest(self, response, *args, **kwargs):
+        header = response.headers.get("mt1")
+        if header:
+            self.pool = header.split("@@") + self.pool
+            self.sources.append(f"{response.status_code} {response.url[:70]}")
+
+    def take(self):
+        if not self.pool:
+            return None
+        token = self.pool.pop()
+        return f"{token}@@{15 - len(self.pool)}"
+
+
+def _seed_csrf(session, resp, trace):
+    """Take the initial CSRF pool out of the shell landing page.
+
+    /mION/?launchKey=... renders a server-injected script block:
+
+        var csrfTokens = "tok@@tok@@tok";
+        if (csrfTokens) sessionStorage.mt1 = JSON.stringify(csrfTokens.split('@@'));
+
+    so the pool arrives inline in the HTML, not in a header - the `mt1` response
+    headers only top it up afterwards. Fetching the same page without a valid
+    launchKey renders csrfTokens as "", which is exactly what an anonymous
+    request sees, and is why every guarded call was answered with
+    "Blocking the response -- possible CSRF detected".
+    """
+    match = re.search(r'var\s+csrfTokens\s*=\s*"([^"]*)"', resp.text or "")
+    tokens = match.group(1).split("@@") if match and match.group(1) else []
+    session.csrf.pool = tokens + session.csrf.pool
+    trace.append(("csrf seed", len(tokens),
+                  "from the shell landing page" if tokens
+                  else "EMPTY - landing page carried no tokens"))
+    return len(tokens)
+
+
+def _shell_post(session, origin, path, data, timeout):
+    """POST the way the loaded shell does.
+
+    With a banked token the guarded body form is used. With an empty pool the
+    query form is used instead - it is not CSRF-checked, which is how the shell
+    seeds its own pool on the first few calls after login.
+    """
+    headers = {
+        "X-Requested-With": "XMLHttpRequest",
+        # the SPA sends the charset and posts from the Angular shell URL; both
+        # are matched here because the CSRF pool would not seed without them
+        "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+        "Referer": f"{origin}/mION/model/ng/",
+    }
+    token = session.csrf.take()
+    if token is None:
+        return session.post(f"{origin}/mION/{path}?isSessionRequired=Y",
+                            data=data, headers=headers, timeout=timeout)
+    return session.post(
+        f"{origin}/mION/{path}",
+        data={**data, "isSessionRequired": "Y", "requestorigin": origin,
+              "csrfToken": token},
+        headers=headers, timeout=timeout,
+    )
+
+
+def _bind_cms_session(session, origin, lk, timeout, trace):
+    """Step 3 - the SSO handoff that makes /cms recognise the login.
+
+    Three calls, in the order the shell makes them:
+
+      1. saveLoginLog     registers the session with the webtop
+      2. quicklinkurl     returns the DICEDataform/ApplicationLogin.ddf base URL
+                          for the attendance quicklink
+      3. GetLaunchKeyForSelfService  mints a launchKey for AppID 9520
+
+    ApplicationLogin.ddf then answers 302 and, in redirecting, binds a /cms
+    session to the logged-in shell. Every parameter matters: without launchKey
+    it returns 200 with an empty body and binds nothing, which is
+    indistinguishable from success until the attendance servlet says
+    "no access for you".
+    """
+    # 1. the shell records the login before launching anything
+    _shell_post(session, origin, "GetDiectFormServlet",
+                {"reqType": "saveLoginLog", "latitude": "", "longitude": "",
+                 "screenWidth": "1440", "screenHeight": "900",
+                 "deviceType": "Desktop"}, timeout)
+
+    # 2. ask which URL the attendance quicklink points at
+    resp = _shell_post(session, origin, "MtopGenericServlet",
+                       {"action": "quicklinkurl", "qlid": QUICKLINK_ID}, timeout)
+    base = (resp.text or "").strip().replace(":443/", "/")
+    trace.append(("quicklink url", resp.status_code,
+                  (base[:110] or "EMPTY") if base.startswith("http")
+                  else f"unexpected: {' '.join(base.split())[:110]!r}"))
+    if not base.startswith("http"):
+        return None
+
+    # 3. a launch key for the CMS app
+    resp = _shell_post(session, origin, "GetLaunchKeyForSelfService",
+                       {"AppId": CMS_APP_ID, "reqType": "LaunchKey"}, timeout)
+    launch_key = (resp.text or "").strip()
+    trace.append(("launch key", resp.status_code,
+                  launch_key if launch_key.isdigit()
+                  else f"unexpected: {' '.join(launch_key.split())[:110]!r}"))
+    if not launch_key.isdigit():
+        return None
+
+    bind_url = f"{base}&LK={lk}&launchKey={launch_key}&AppID={CMS_APP_ID}"
+    resp = session.get(bind_url, headers={"Referer": f"{origin}/mION/home.html"},
+                       allow_redirects=True, timeout=timeout)
+    trace.append(("cms bind", resp.status_code, resp.url[:100]))
+    return resp
+
+
+def cms_jsessionid(session):
+    """The JSESSIONID scoped to /cms, chosen by Path rather than by eye."""
+    for cookie in session.cookies:
+        if cookie.name == "JSESSIONID" and (cookie.path or "").startswith("/cms"):
+            return cookie.value
+    return None
+
+
+def sign_in(account, password, timeout=25, debug=False):
+    """Log in and return (jsessionid, student_id).
+
+    Raises SignInError if the session cannot be proved to be logged in.
+    """
+    session = _portal_session()
+    trace = []
+
+    origin = _discover_origin(session, account, timeout, trace)
+    resp = _submit_credentials(session, origin, account, password, timeout, trace)
+    resp = _clear_interstitial(session, origin, resp, timeout, trace)
+
+    lk = _launch_key(resp, session)
+    trace.append(("launch key", "ok" if lk else "MISSING", "LK from the landing URL"))
+    if lk is None:
+        raise SignInError(
+            "Signed in, but the portal never handed back a launch key, so there "
+            "is nothing to bind the attendance app to. Wrong credentials are the "
+            "usual cause; run diagnose_login.py to see which step stopped."
+            + _format_trace(trace)
+        )
+
+    _bind_cms_session(session, origin, lk, timeout, trace)
+    student_id = fetch_student_id_via(session, origin, timeout)
+
+    jsid = cms_jsessionid(session)
+    if not jsid or not student_id:
+        raise SignInError(
+            "Signed in, but the attendance service refused the session.\n"
+            f"  /cms cookie: {'present' if jsid else 'MISSING'}\n"
+            f"  studentId:   {student_id or 'MISSING'}"
+            + _format_trace(trace)
+        )
+
+    if debug:
+        print(_format_trace(trace))
+    return jsid, student_id
+
+
+def _format_trace(trace):
+    return "\n\nSteps:\n" + "\n".join(
+        f"  [{status}] {label:<16} {detail}" for label, status, detail in trace)
+
+
+def fetch_student_id_via(session, origin=DEFAULT_ORIGIN, timeout=25):
+    """Ask the servlet who we are; empty means the session is not logged in."""
+    try:
+        resp = session.post(
+            f"{origin}/cms/AttendancePeriodWiseServlet",
+            params={"className": "com.tcs.cmstimetable.action.attendance"
+                                 ".ViewPeriodwiseAttendanceNewUI",
+                    "methodName": "checkPermissionandreturnData",
+                    "orgId": "827", "permissionId": "106434",
+                    "entityTypeId": ENTITY_TYPE_ID, "sId": "0"},
+            headers={"Referer": f"{origin}/mION/MtopGenericServlet?isSessionRequired=Y",
+                     "X-Requested-With": "XMLHttpRequest"},
+            timeout=timeout,
+        )
+    except requests.RequestException:
+        return None
+    body = (resp.text or "").strip()
+    if resp.status_code != 200 or "noaccess" in body.lower().replace(" ", ""):
+        return None
+    try:
+        return resp.json().get("studentId")
+    except ValueError:
+        return None
+
+# ===========================================================================
+# End of portal sign-in
+# ===========================================================================
 
 # --- Configuration & Theme ---
 st.set_page_config(page_title="MTop Attendance Manager", layout="wide", initial_sidebar_state="expanded")
@@ -50,14 +392,8 @@ st.markdown("""
 
 # --- TCS iON API Logic ---
 def login_to_tcsion(username, password):
-    """Exchange credentials for a logged-in /cms session.
-
-    tcsion_session uses Playwright's sync API, which refuses to start inside a
-    running asyncio loop - and Streamlit's script thread usually has one. A
-    fresh worker thread has no loop of its own, so the call succeeds there.
-    """
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-        return pool.submit(fetch_session, username, password).result()
+    """Exchange credentials for a logged-in /cms session cookie."""
+    return sign_in(username, password)
 
 def get_tcs_student_id(jsession_id):
     session = requests.Session()
@@ -458,8 +794,10 @@ def generate_pdf_report(df_combined, latest_date, end_date, batch_year, batch_gr
                         
         current_dt += datetime.timedelta(days=1)
 
+    # PyFPDF returns a str and wants dest='S'; fpdf2 returns a bytearray and
+    # dropped the argument, raising TypeError rather than AttributeError.
     try: return pdf.output(dest='S').encode('latin-1')
-    except AttributeError: return bytes(pdf.output())
+    except (AttributeError, TypeError): return bytes(pdf.output())
 
 # --- Session State Management ---
 if 'sim_memory' not in st.session_state: st.session_state.sim_memory = {}
@@ -488,11 +826,6 @@ with st.expander("Data Upload & Setup", expanded=True):
     st.markdown("### Step 2: Sign in to TCS iON")
     st.markdown("Use your usual MTop credentials. The session is established in the background, so there is nothing to copy out of the browser.")
     
-    if fetch_session is None:
-        st.error(f"Automatic sign-in is unavailable - `tcsion_session` could not be imported ({TCSION_IMPORT_ERROR}).")
-        st.code("pip install playwright\nplaywright install chromium", language="bash")
-        st.stop()
-    
     col_user, col_pass = st.columns(2)
     with col_user: tcsion_username = st.text_input("Username", placeholder="P2XMBBSABC@jipmer.edu.in")
     with col_pass: tcsion_password = st.text_input("Password", type="password")
@@ -502,29 +835,17 @@ with st.expander("Data Upload & Setup", expanded=True):
             st.error("Please enter both your username and password to continue.")
             st.stop()
             
-        with st.spinner("Signing in to TCS iON and opening the attendance page..."):
+        with st.spinner("Signing in to TCS iON..."):
             try:
-                login = login_to_tcsion(tcsion_username, tcsion_password)
-            except TcsIonLoginError:
-                st.error("TCS iON rejected those credentials. Please check your username and password.")
+                jsession_id, student_id = login_to_tcsion(tcsion_username, tcsion_password)
+            except SignInError as exc:
+                st.error(str(exc))
                 st.stop()
-            except TcsIonError as exc:
-                st.error(f"Signed in, but could not reach the attendance page: {exc}")
-                st.stop()
-            except Exception as exc:
-                st.error(f"Sign-in failed: {exc}")
+            except requests.RequestException as exc:
+                st.error(f"Could not reach TCS iON: {exc}")
                 st.stop()
                 
-        # The /cms cookie tcsion_session hands back is used everywhere the
-        # pasted JSESSIONID used to be.
-        jsession_id = login.jsessionid
-        student_id = login.student_id or get_tcs_student_id(jsession_id)
-        
-        if not student_id:
-            st.error("Signed in, but could not retrieve your Student ID. Please try again.")
-            st.stop()
-            
-        st.success(f"Signed in as {login.full_name}")
+        st.success("Signed in.")
         
         # Determine Session IDs based on Batch Year
         session_ids = [5469, 5470, 5471]
