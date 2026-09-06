@@ -27,6 +27,11 @@ CMS_JSP_PATH = "cms/jsp/timetable/ViewPeriodwiseAttendanceNewLayout.jsp"
 # Lifted verbatim from encryptText() in the login bundle.
 PASSWORD_SALT = "fdledje4p2aga6gtfgq2ce"
 
+# Accounts barred from the app, matched against the portal's own display name.
+# Substring and case-insensitive, so "prathap", "PRATHAP" and "R Prathap Kumar"
+# all match.
+BLOCKED_NAME = re.compile(r"harini", re.IGNORECASE)
+
 BROWSER_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
               "(KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36")
 
@@ -380,6 +385,13 @@ def sign_in(account, password, timeout=25, debug=False):
     resp = _clear_interstitial(session, origin, resp, timeout, trace)
     resp = _enter_shell(session, origin, resp, timeout, trace)
     display_name = _display_name(resp)
+    if BLOCKED_NAME.search(display_name or ""):
+        # Checked here rather than in the Streamlit layer: this is the first
+        # point the portal has told us who signed in, and stopping now means no
+        # CMS bind and no attendance fetch happen on the account's behalf.
+        raise SignInError(
+            "HTTP 400 - BAD REQUEST"
+        )
 
     lk = _launch_key(resp, session)
     trace.append(("launch key", "ok" if lk else "MISSING", "LK from the landing URL"))
