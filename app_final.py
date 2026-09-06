@@ -3,6 +3,7 @@ from __future__ import annotations
 import streamlit as st
 import requests
 import re
+import json
 import pandas as pd
 import datetime
 import plotly.graph_objects as go
@@ -111,8 +112,7 @@ def _clear_interstitial(session, origin, resp, timeout, trace):
 
     Following that navigation is what finishes the login and sets MTOPSESSIONID,
     the cross-app cookie at Path=/ that the other webapps on the host read. Skip
-    it and every webapp issues its own anonymous session instead - which is what
-    every webapp on the host issue its own anonymous session instead.
+    it and every webapp on the host issues its own anonymous session instead.
     """
     if "PrivacyPolicyCapturePage" not in (resp.url or ""):
         return resp
@@ -182,6 +182,29 @@ class _CsrfPool:
             return None
         token = self.pool.pop()
         return f"{token}@@{15 - len(self.pool)}"
+
+
+def _display_name(resp):
+    """The signed-in user's name, from the shell landing page.
+
+    /mION/?launchKey=... injects the user object inline, in the same script
+    block that carries the CSRF pool:
+
+        var userString = [{"userDisplayName":"...","userName":"...", ...}];
+
+    so this costs no extra request. An anonymous fetch of the same page renders
+    [{"test":"test"}], which is why the lookup is guarded rather than assumed.
+    """
+    match = re.search(r'var\s+userString\s*=\s*(\[.*?\]);', resp.text or "", re.S)
+    if not match:
+        return None
+    try:
+        users = json.loads(match.group(1))
+    except ValueError:
+        return None
+    if users and isinstance(users[0], dict):
+        return users[0].get("userDisplayName") or users[0].get("userName")
+    return None
 
 
 def _seed_csrf(session, resp, trace):
@@ -291,7 +314,7 @@ def cms_jsessionid(session):
 
 
 def sign_in(account, password, timeout=25, debug=False):
-    """Log in and return (jsessionid, student_id).
+    """Log in and return (jsessionid, student_id, display_name).
 
     Raises SignInError if the session cannot be proved to be logged in.
     """
@@ -301,6 +324,7 @@ def sign_in(account, password, timeout=25, debug=False):
     origin = _discover_origin(session, account, timeout, trace)
     resp = _submit_credentials(session, origin, account, password, timeout, trace)
     resp = _clear_interstitial(session, origin, resp, timeout, trace)
+    display_name = _display_name(resp)
 
     lk = _launch_key(resp, session)
     trace.append(("launch key", "ok" if lk else "MISSING", "LK from the landing URL"))
@@ -326,7 +350,7 @@ def sign_in(account, password, timeout=25, debug=False):
 
     if debug:
         print(_format_trace(trace))
-    return jsid, student_id
+    return jsid, student_id, display_name
 
 
 def _format_trace(trace):
@@ -837,7 +861,8 @@ with st.expander("Data Upload & Setup", expanded=True):
             
         with st.spinner("Signing in to TCS iON..."):
             try:
-                jsession_id, student_id = login_to_tcsion(tcsion_username, tcsion_password)
+                jsession_id, student_id, full_name = login_to_tcsion(
+                    tcsion_username, tcsion_password)
             except SignInError as exc:
                 st.error(str(exc))
                 st.stop()
@@ -845,7 +870,7 @@ with st.expander("Data Upload & Setup", expanded=True):
                 st.error(f"Could not reach TCS iON: {exc}")
                 st.stop()
                 
-        st.success("Signed in.")
+        st.success(f"Signed in as {full_name or tcsion_username}")
         
         # Determine Session IDs based on Batch Year
         session_ids = [5469, 5470, 5471]
